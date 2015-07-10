@@ -18,7 +18,7 @@ INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/src)
 ### Required packages
 INCLUDE(FindPkgConfig)
 
-pkg_check_modules(libpkgs REQUIRED dlog bundle openssl glib-2.0)
+pkg_check_modules(libpkgs REQUIRED dlog bundle openssl glib-2.0 capi-base-common)
 
 #FIND_LIBRARY(LIB_DL dl)
 

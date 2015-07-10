@@ -12,6 +12,7 @@ BuildRequires:  pkgconfig(dlog)
 BuildRequires:  pkgconfig(gio-2.0)
 BuildRequires:  pkgconfig(glib-2.0)
 BuildRequires:  pkgconfig(openssl)
+BuildRequires:  pkgconfig(capi-base-common)
 
 Requires(post): /sbin/ldconfig
 Requires(postun): /sbin/ldconfig
