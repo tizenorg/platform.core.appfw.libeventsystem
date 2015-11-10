@@ -2,7 +2,7 @@ Name:       eventsystem
 Summary:    Event system library
 Version:    0.0.1
 Release:    1
-Group:      System/Libraries
+Group:      Application Framework/Libraries
 License:    Apache-2.0
 Source0:    %{name}-%{version}.tar.gz
 BuildRequires:  cmake
@@ -11,7 +11,6 @@ BuildRequires:  pkgconfig(bundle)
 BuildRequires:  pkgconfig(dlog)
 BuildRequires:  pkgconfig(gio-2.0)
 BuildRequires:  pkgconfig(glib-2.0)
-BuildRequires:  pkgconfig(openssl)
 BuildRequires:  pkgconfig(capi-base-common)
 
 Requires(post): /sbin/ldconfig

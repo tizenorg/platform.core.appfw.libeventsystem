@@ -10,7 +10,6 @@
 #include <glib.h>
 #include <gio/gio.h>
 #include <eventsystem.h>
-#include <openssl/md5.h>
 #include <fcntl.h>
 
 #undef LOG_TAG
@@ -57,6 +56,7 @@ pthread_mutex_t send_sync_lock = PTHREAD_MUTEX_INITIALIZER;
 static GList *system_event_list;
 static int _initialized;
 static GHashTable *check_tbl;
+static GHashTable *filter_tbl;
 
 typedef struct eventmap {
 	char *event_name;
@@ -78,7 +78,6 @@ typedef struct eventinfo {
 	char *object_path;
 	char *member_name;
 	bool is_user_event;
-	gboolean is_trusted;
 	bundle *event_data;
 } eventinfo_s;
 
@@ -90,10 +89,10 @@ typedef struct sysevent_info {
 } sysevent_info_s;
 static sysevent_info_s s_info;
 
-static int __eventsystem_request_event_launch(const char *method_name,
-		const char *event_name, bundle *data);
 static int __eventsystem_check_user_send_validation(const char *event_name);
 static int __eventsystem_requet_destination_list(const char *event_name, GList **dest_list);
+static int __eventsystem_check_sender_validation(int sender_pid,
+		const char *event_name, char **sender);
 
 static int __event_compare_name_cb(gconstpointer a, gconstpointer b)
 {
@@ -117,6 +116,45 @@ static void __initialize(void)
 #endif
 
 	_initialized = 1;
+}
+
+static int __eventsystem_get_sender_pid(GDBusConnection *conn, const char *sender_name)
+{
+	GDBusMessage *msg = NULL;
+	GDBusMessage *reply = NULL;
+	GError *err = NULL;
+	GVariant *body;
+	int pid = 0;
+
+	msg = g_dbus_message_new_method_call("org.freedesktop.DBus", "/org/freedesktop/DBus",
+		"org.freedesktop.DBus", "GetConnectionUnixProcessID");
+	if (!msg) {
+		_E("Can't allocate new method call");
+		goto out;
+	}
+
+	g_dbus_message_set_body(msg, g_variant_new("(s)", sender_name));
+	reply = g_dbus_connection_send_message_with_reply_sync(conn, msg,
+		G_DBUS_SEND_MESSAGE_FLAGS_NONE, -1, NULL, NULL, &err);
+
+	if (!reply) {
+		if (err != NULL) {
+			_E("Failed to get pid [%s]", err->message);
+			g_error_free(err);
+		}
+		goto out;
+	}
+
+	body = g_dbus_message_get_body(reply);
+	g_variant_get(body, "(u)", &pid);
+
+out:
+	if (msg)
+		g_object_unref(msg);
+	if (reply)
+		g_object_unref(reply);
+
+	return pid;
 }
 
 static char *__get_object_path(char *interface_name)
@@ -145,35 +183,27 @@ static char *__get_object_path(char *interface_name)
 
 static char *__get_encoded_interface_name(char *interface_name)
 {
-	unsigned char c[MD5_DIGEST_LENGTH] = {0, };
-	char *md5_evtid = NULL;
-	char *temp;
-	int index = 0;
-	MD5_CTX mdContext;
+	char *evtid = NULL;
+	int evtid_len = 0;
+	gchar *encoded_value;
 
-	MD5_Init(&mdContext);
-	MD5_Update(&mdContext, interface_name, strlen(interface_name));
-	MD5_Final(c, &mdContext);
+	encoded_value = g_compute_checksum_for_string(G_CHECKSUM_MD5,
+		interface_name, strlen(interface_name));
 
-	md5_evtid = (char *)calloc(EVENT_SYSTEM_PREFIX_LEN + (MD5_DIGEST_LENGTH * 2) + 1,
-		sizeof(char));
-	if (md5_evtid == NULL) {
-		_D("Malloc failed!!");
+	evtid_len = EVENT_SYSTEM_PREFIX_LEN + strlen(encoded_value) + 1;
+
+	evtid = (char *)calloc(evtid_len, sizeof(char));
+	if (evtid == NULL) {
+		_D("memory alloc failed");
+		g_free(encoded_value);
 		return NULL;
 	}
 
-	sprintf(md5_evtid, "%s", EVENT_SYSTEM_PREFIX);
+	snprintf(evtid, evtid_len, "%s%s", EVENT_SYSTEM_PREFIX, (char *)encoded_value);
 
-	temp = md5_evtid;
+	g_free(encoded_value);
 
-	temp += EVENT_SYSTEM_PREFIX_LEN;
-
-	for (index = 0; index < MD5_DIGEST_LENGTH; index++) {
-		sprintf(temp, "%02x", c[index]);
-		temp += 2;
-	}
-
-	return md5_evtid;
+	return evtid;
 }
 
 static char *__get_member_name_from_eventname(char *event_name)
@@ -182,6 +212,7 @@ static char *__get_member_name_from_eventname(char *event_name)
 	char *ptr_last = NULL;
 	char *temp_name = NULL;
 	char *member_name = NULL;
+	char *save_ptr = NULL;
 	int count = 0;
 
 	temp_name = strdup(event_name);
@@ -190,7 +221,7 @@ static char *__get_member_name_from_eventname(char *event_name)
 		return NULL;
 	}
 
-	ptr = strtok(temp_name, ".");
+	ptr = strtok_r(temp_name, ".", &save_ptr);
 	if (ptr == NULL) {
 		_E("invalid event_name(%s), count(%d)", event_name, count);
 		FREE_AND_NULL(temp_name);
@@ -199,7 +230,7 @@ static char *__get_member_name_from_eventname(char *event_name)
 	count++;
 
 	while (count < MAX_COUNT_FOR_EVENTNAME_CHECK) {
-		ptr = strtok(NULL, ".");
+		ptr = strtok_r(NULL, ".", &save_ptr);
 		if (ptr == NULL)
 			break;
 		/* _D("(%d)ptr(%s)(%d)", count, ptr, strlen(ptr)); */
@@ -230,6 +261,42 @@ static char *__get_member_name_from_eventname(char *event_name)
 	return member_name;
 }
 
+static int __check_validation_usrevent_sender(int sender_pid,
+		const char *interface_name, const char *event_name)
+{
+	char *sender_id = NULL;
+	char *key = NULL;
+	char *val = NULL;
+
+	if (__eventsystem_check_sender_validation(sender_pid,
+		event_name, &sender_id) < 0) {
+		_E("invalid user-event sender");
+		return ES_R_EINVAL;
+	}
+
+	if (sender_id == NULL) {
+		_E("sender_id is null");
+		return ES_R_EINVAL;
+	}
+
+	key = strdup(interface_name);
+	if (key == NULL) {
+		_E("out of memory");
+		return ES_R_ENOMEM;
+	}
+
+	val = strdup(sender_id);
+	if (val == NULL) {
+		_E("out of memory");
+		free(key);
+		return ES_R_ENOMEM;
+	}
+
+	g_hash_table_insert(filter_tbl, key, val);
+
+	return ES_R_OK;
+}
+
 static int __check_validation_user_defined_name(const char *event_name)
 {
 	char *event_id = NULL;
@@ -255,6 +322,18 @@ static int __check_validation_user_defined_name(const char *event_name)
 				g_hash_table_insert(check_tbl, key, key);
 			}
 		}
+	}
+
+	return ret;
+}
+
+static int __check_interface_validation_user(char *interface_name)
+{
+	int ret = 1;
+	int len = strlen(EVENT_SYSTEM_PREFIX);
+
+	if (strncmp(interface_name, EVENT_SYSTEM_PREFIX, len) != 0) {
+		ret = 0;
 	}
 
 	return ret;
@@ -385,7 +464,6 @@ static void __eventsystem_event_handler(GDBusConnection *connection,
 	GList *cb_list = NULL;
 	bundle *buf = NULL;
 	bundle_raw *raw = NULL;
-	gboolean is_trusted = FALSE;
 
 	em.interface_name = (char *)interface_name;
 	em.member_name = (char *)signal_name;
@@ -399,7 +477,7 @@ static void __eventsystem_event_handler(GDBusConnection *connection,
 		return;
 	}
 
-	g_variant_get(parameters, "(bus)", &is_trusted, &len, &raw);
+	g_variant_get(parameters, "(us)", &len, &raw);
 
 	buf = bundle_decode((bundle_raw *)raw, len);
 
@@ -413,8 +491,7 @@ static void __eventsystem_event_handler(GDBusConnection *connection,
 	bundle_free(buf);
 }
 
-static void __eventsystem_application_event_handler(GDBusConnection *connection,
-		const gchar *sender_name, const gchar *object_path,
+static void __eventsystem_application_event_handler(int sender_pid,
 		const gchar *interface_name, const gchar *signal_name,
 		GVariant *parameters, gpointer user_data)
 {
@@ -426,19 +503,25 @@ static void __eventsystem_application_event_handler(GDBusConnection *connection,
 	em.interface_name = (char *)interface_name;
 	em.member_name = (char *)signal_name;
 
-	_D("sender_name(%s), interface_name(%s), signal_name(%s)",
-		sender_name, interface_name, signal_name);
-
 	cb_list = g_list_find_custom(system_event_list, &em,
 		(GCompareFunc)__event_compare_name_cb);
 
 	if (cb_list == NULL) {
+		_E("not interested event");
 		return;
 	}
 
-	g_variant_get(parameters, "(bus)", NULL, &len, &raw);
-
 	em.event_name = ((eventmap_s *)cb_list->data)->event_name;
+
+	if (sender_pid > 0 && __check_interface_validation_user((char *)interface_name)) {
+		if (__check_validation_usrevent_sender(sender_pid,
+			(const char *)interface_name, em.event_name) < 0) {
+			_E("invalid sender");
+			return;
+		}
+	}
+
+	g_variant_get(parameters, "(us)", &len, &raw);
 	em.es_cb = ((eventmap_s *)cb_list->data)->es_cb;
 	if (em.es_cb) {
 		em.es_cb(em.event_name, raw, len, user_data);
@@ -455,14 +538,28 @@ static void __eventsystem_filter_userevent_for_application(GDBusConnection *conn
 		const gchar *interface_name, const gchar *signal_name,
 		GVariant *parameters, gpointer user_data)
 {
-	gboolean is_trusted = FALSE;
+	char *sender_id = NULL;
+	int sender_pid = -1;
 
 	_D("sender_name(%s), interface_name(%s)", sender_name, interface_name);
 
-	g_variant_get(parameters, "(bus)", &is_trusted, NULL, NULL);
+	if (filter_tbl == NULL) {
+		filter_tbl = g_hash_table_new(g_str_hash, g_str_equal);
+	}
 
-	__eventsystem_application_event_handler(connection, sender_name,
-		object_path, interface_name, signal_name, parameters, user_data);
+	sender_id = (char *)g_hash_table_lookup(filter_tbl, interface_name);
+
+	if (sender_id == NULL) {
+		sender_pid = __eventsystem_get_sender_pid(connection, sender_name);
+		if (sender_pid <= 0) {
+			_E("failed to get pid of sender(%s)", sender_name);
+			return;
+		}
+		_D("sender_pid(%d)", sender_pid);
+	}
+
+	__eventsystem_application_event_handler(sender_pid, interface_name,
+		signal_name, parameters, user_data);
 }
 
 /**
@@ -475,8 +572,8 @@ static void __eventsystem_filter_sysevent_for_application(GDBusConnection *conne
 {
 	_D("sender_name(%s), interface_name(%s)", sender_name, interface_name);
 
-	__eventsystem_application_event_handler(connection, sender_name,
-		object_path, interface_name, signal_name, parameters, user_data);
+	__eventsystem_application_event_handler(-1, interface_name,
+		signal_name, parameters, user_data);
 }
 
 /**
@@ -730,7 +827,7 @@ int eventsystem_unregister_event(unsigned int reg_id)
 	return ES_R_OK;
 }
 
-static int eventsystem_send_event(GDBusConnection *conn, eventinfo_s *evti, bundle *data)
+static int __eventsystem_send_event(GDBusConnection *conn, eventinfo_s *evti, bundle *data)
 {
 	GError *error = NULL;
 	GVariant *param = NULL;
@@ -742,10 +839,7 @@ static int eventsystem_send_event(GDBusConnection *conn, eventinfo_s *evti, bund
 
 	bundle_encode(buf, &raw, &len);
 
-	if (!evti->is_user_event)
-		evti->is_trusted = FALSE;
-
-	param = g_variant_new("(bus)", evti->is_trusted, len, raw);
+	param = g_variant_new("(us)", len, raw);
 	ret = g_dbus_connection_emit_signal(conn,
 		evti->destination_name,
 		evti->object_path,
@@ -781,7 +875,6 @@ static int __eventsystem_send_trusted_event(GDBusConnection *conn, eventinfo_s *
 {
 	GList *tmp_list = NULL;
 	int ret = 0;
-	int real_sent = 0;
 
 	if (dest_list) {
 		tmp_list = g_list_first(dest_list);
@@ -791,22 +884,16 @@ static int __eventsystem_send_trusted_event(GDBusConnection *conn, eventinfo_s *
 			if (dest_name && dest_name[0] != '\0') {
 				_D("dest_name(%s)", dest_name);
 				evti->destination_name = dest_name;
-				ret = eventsystem_send_event(conn, evti, data);
+				ret = __eventsystem_send_event(conn, evti, data);
 				if (ret != ES_R_OK) {
 					_E("send error");
 					ret = ES_R_ERROR;
 					break;
 				}
-				real_sent = 1;
 			}
 			tmp_list = g_list_next(tmp_list);
 		}
 		g_list_free_full(dest_list, __eventsystem_free_trusted_list);
-
-		if (real_sent) {
-			__eventsystem_request_event_launch("RequestTrustedEventLaunch",
-				evti->event_name, data);
-		}
 	} else {
 		_E("dest_list is null");
 	}
@@ -867,11 +954,10 @@ int eventsystem_send_user_event(const char *event_name, bundle *data, bool is_tr
 
 	evti->destination_name = NULL;
 	evti->is_user_event = true;
-	evti->is_trusted = (gboolean)is_trusted;
 
 	GDBusConnection *conn = NULL;
 	if (__get_gdbus_shared_connection(&conn, G_BUS_TYPE_SESSION, ES_TYPE_USER) == ES_R_OK) {
-		if (evti->is_trusted) {
+		if (is_trusted) {
 			GList *dest_list = NULL;
 			ret = __eventsystem_requet_destination_list(evti->event_name, &dest_list);
 			if (ret < 0) {
@@ -882,11 +968,7 @@ int eventsystem_send_user_event(const char *event_name, bundle *data, bool is_tr
 					data, dest_list);
 			}
 		} else {
-			ret = eventsystem_send_event(conn, evti, data);
-			if (ret == ES_R_OK) {
-				__eventsystem_request_event_launch("RequestEventLaunch",
-					evti->event_name, data);
-			}
+			ret = __eventsystem_send_event(conn, evti, data);
 		}
 	} else {
 		_E("getting gdbus-connetion error");
@@ -966,11 +1048,10 @@ int eventsystem_send_system_event(const char *event_name, bundle *data)
 	}
 	evti->destination_name = NULL;
 	evti->is_user_event = false;
-	evti->is_trusted = FALSE;
 
 	GDBusConnection *conn = NULL;
 	if (__get_gdbus_shared_connection(&conn, G_BUS_TYPE_SYSTEM, ES_TYPE_SYSTEM) == ES_R_OK) {
-		ret = eventsystem_send_event(conn, evti, data);
+		ret = __eventsystem_send_event(conn, evti, data);
 	} else {
 		_E("getting gdbus-connection error");
 		ret = ES_R_ERROR;
@@ -1061,20 +1142,16 @@ out_1:
 	return ret;
 }
 
-static int __eventsystem_request_event_launch(const char *method_name,
-		const char *event_name, bundle *data)
+static int __eventsystem_check_sender_validation(int sender_pid, const char *event_name,
+		char **sender_id)
 {
-	int ret = 0;
+	int ret = ES_R_EINVAL;
 	GDBusConnection *conn = NULL;
 	GError *error = NULL;
 	GDBusProxy *proxy = NULL;
 	GVariant *param = NULL;
 	GVariant *value = NULL;
 	gint result = 0;
-	bundle_raw *raw = NULL;
-	int len = 0;
-
-	_D("event_name(%s)", event_name);
 
 	if (!_initialized) {
 		__initialize();
@@ -1097,10 +1174,8 @@ static int __eventsystem_request_event_launch(const char *method_name,
 		goto out_1;
 	}
 
-	bundle_encode(data, &raw, &len);
-
-	param = g_variant_new("(ssi)", event_name, raw, len);
-	value = g_dbus_proxy_call_sync(proxy, method_name, param,
+	param = g_variant_new("(is)", sender_pid, event_name);
+	value = g_dbus_proxy_call_sync(proxy, "CheckSenderValidation", param,
 		G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
 	if (error != NULL) {
 		_E("proxy call sync error(%s)", error->message);
@@ -1109,12 +1184,13 @@ static int __eventsystem_request_event_launch(const char *method_name,
 		goto out_2;
 	}
 
-	g_variant_get(value, "(i)", &result);
+	g_variant_get(value, "(is)", &result, sender_id);
 
 	_D("result(%d)", result);
 
-	ret = ES_R_OK;
-
+	if (result == 1) {
+		ret = ES_R_OK;
+	}
 out_2:
 	g_variant_unref(value);
 out_1:
@@ -1690,6 +1766,29 @@ int eventsystem_application_finalize(void)
 			g_hash_table_iter_remove(&iter);
 		}
 		g_hash_table_unref(check_tbl);
+	}
+
+	if (filter_tbl) {
+		GHashTableIter iter;
+
+		g_hash_table_iter_init(&iter, filter_tbl);
+
+		while (g_hash_table_iter_next(&iter, &key, &value)) {
+			char *key_item = (char *)key;
+			if (key_item) {
+				free(key_item);
+			} else {
+				_E("filter_tbl, key_item is NULL");
+			}
+			char *val_item = (char *)value;
+			if (val_item) {
+				free(val_item);
+			} else {
+				_E("filter_tbl, val_item is NULL");
+			}
+			g_hash_table_iter_remove(&iter);
+		}
+		g_hash_table_unref(filter_tbl);
 	}
 
 	FREE_AND_NULL(s_info.own_name_system_bus);

@@ -47,6 +47,7 @@ extern "C" {
 #define EVT_VAL_BATTERY_CHARGER_DISCONNECTED "disconnected"
 #define EVT_VAL_BATTERY_CHARGER_CONNECTED "connected"
 #define EVT_VAL_BATTERY_CHARGER_CHARGING "charging"
+#define EVT_VAL_BATTERY_CHARGER_DISCHARGING "discharging"
 
 /** battery : level status */
 #define SYS_EVENT_BATTERY_LEVEL_STATUS "tizen.system.event.battery_level_status"
