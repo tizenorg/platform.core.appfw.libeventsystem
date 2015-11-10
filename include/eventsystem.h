@@ -23,6 +23,7 @@
 
 #include <stdbool.h>
 #include <eventsystem_internal.h>
+#include <bundle_internal.h>
 
 #ifdef __cplusplus
 extern "C" {
