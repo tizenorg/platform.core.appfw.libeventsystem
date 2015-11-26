@@ -393,7 +393,7 @@ static int __get_gdbus_shared_connection(GDBusConnection **connection, GBusType 
 			_E("failed to get guid");
 			return ES_R_ERROR;
 		}
-		snprintf(own_name, 128, "%s_%s_%s_%d", "event.busname",
+		snprintf(own_name, 128, "%s.%s.id%s_%d", "event.busname",
 			(bus_type == G_BUS_TYPE_SESSION ? "session" : "system"),
 			guid, getpid());
 		g_free(guid);
