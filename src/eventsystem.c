@@ -160,7 +160,7 @@ out:
 static char *__get_object_path(char *interface_name)
 {
 	int i;
-	char *object_path = (char *)calloc(strlen(interface_name), sizeof(char)+2);
+	char *object_path = (char *)calloc(strlen(interface_name), sizeof(char) + 2);
 
 	if (object_path == NULL) {
 		_E("failed to allocate memory");
@@ -169,13 +169,11 @@ static char *__get_object_path(char *interface_name)
 
 	object_path[0] = '/';
 
-	for (i = 0 ; interface_name[i] ; i++) {
-
-		if (interface_name[i] == '.') {
-			object_path[i+1] = '/';
-		} else {
-			object_path[i+1] = interface_name[i];
-		}
+	for (i = 0; interface_name[i]; i++) {
+		if (interface_name[i] == '.')
+			object_path[i + 1] = '/';
+		else
+			object_path[i + 1] = interface_name[i];
 	}
 
 	return object_path;
@@ -303,12 +301,10 @@ static int __check_validation_user_defined_name(const char *event_name)
 	char *key = NULL;
 	int ret = 1;
 
-	if (check_tbl == NULL) {
+	if (check_tbl == NULL)
 		check_tbl = g_hash_table_new(g_str_hash, g_str_equal);
-	}
 
 	event_id = (char *)g_hash_table_lookup(check_tbl, event_name);
-
 	if (event_id == NULL) {
 		if (__eventsystem_check_user_send_validation(event_name) < 0) {
 			_E("invalid user-event name");
@@ -329,38 +325,32 @@ static int __check_validation_user_defined_name(const char *event_name)
 
 static int __check_interface_validation_user(char *interface_name)
 {
-	int ret = 1;
 	int len = strlen(EVENT_SYSTEM_PREFIX);
 
-	if (strncmp(interface_name, EVENT_SYSTEM_PREFIX, len) != 0) {
-		ret = 0;
-	}
+	if (strncmp(interface_name, EVENT_SYSTEM_PREFIX, len) != 0)
+		return 0;
 
-	return ret;
+	return 1;
 }
 
 static int __check_eventname_validation_user(char *event_name)
 {
-	int ret = 1;
 	int len = strlen(USER_EVENT_NAME_PREFIX);
 
-	if (strncmp(event_name, USER_EVENT_NAME_PREFIX, len) != 0) {
-		ret = 0;
-	}
+	if (strncmp(event_name, USER_EVENT_NAME_PREFIX, len) != 0)
+		return 0;
 
-	return ret;
+	return 1;
 }
 
 static int __check_eventname_validation_system(char *event_name)
 {
-	int ret = 1;
 	int len = strlen(SYS_EVENT_NAME_PREFIX);
 
-	if (strncmp(event_name, SYS_EVENT_NAME_PREFIX, len) != 0) {
-		ret = 0;
-	}
+	if (strncmp(event_name, SYS_EVENT_NAME_PREFIX, len) != 0)
+		return 0;
 
-	return ret;
+	return 1;
 }
 
 static int __get_gdbus_shared_connection(GDBusConnection **connection, GBusType bus_type,
@@ -368,10 +358,12 @@ static int __get_gdbus_shared_connection(GDBusConnection **connection, GBusType 
 {
 	GError *error = NULL;
 	guint owner_id = 0;
+	gchar *guid = NULL;
+	char own_name[128] = {0, };
+	GDBusConnection *conn_system = NULL;
 
-	if (!_initialized) {
+	if (!_initialized)
 		__initialize();
-	}
 
 	*connection = g_bus_get_sync(bus_type, NULL, &error);
 	if (*connection == NULL) {
@@ -385,9 +377,6 @@ static int __get_gdbus_shared_connection(GDBusConnection **connection, GBusType 
 
 	if (((bus_type == G_BUS_TYPE_SYSTEM && !s_info.owner_id) ||
 		(bus_type == G_BUS_TYPE_SESSION && !s_info.owner_id_session))) {
-		gchar *guid = NULL;
-		char own_name[128] = {0, };
-
 		guid = g_dbus_generate_guid();
 		if (guid == NULL) {
 			_E("failed to get guid");
@@ -409,8 +398,6 @@ static int __get_gdbus_shared_connection(GDBusConnection **connection, GBusType 
 
 		if (bus_type == G_BUS_TYPE_SESSION && event_type == ES_TYPE_USER) {
 			/* set same name on system-bus */
-			GDBusConnection *conn_system = NULL;
-
 			error = NULL;
 			conn_system = g_bus_get_sync(G_BUS_TYPE_SYSTEM, NULL, &error);
 			if (conn_system == NULL) {
@@ -473,9 +460,8 @@ static void __eventsystem_event_handler(GDBusConnection *connection,
 
 	cb_list = g_list_find_custom(system_event_list, &em,
 		(GCompareFunc)__event_compare_name_cb);
-	if (cb_list == NULL) {
+	if (cb_list == NULL)
 		return;
-	}
 
 	g_variant_get(parameters, "(us)", &len, &raw);
 
@@ -483,9 +469,8 @@ static void __eventsystem_event_handler(GDBusConnection *connection,
 
 	em.event_name = ((eventmap_s *)cb_list->data)->event_name;
 	em.ep_cb = ((eventmap_s *)cb_list->data)->ep_cb;
-	if (em.ep_cb) {
+	if (em.ep_cb)
 		em.ep_cb(em.event_name, buf, user_data);
-	}
 
 	bundle_free_encoded_rawdata(&raw);
 	bundle_free(buf);
@@ -523,9 +508,8 @@ static void __eventsystem_application_event_handler(int sender_pid,
 
 	g_variant_get(parameters, "(us)", &len, &raw);
 	em.es_cb = ((eventmap_s *)cb_list->data)->es_cb;
-	if (em.es_cb) {
+	if (em.es_cb)
 		em.es_cb(em.event_name, raw, len, user_data);
-	}
 
 	bundle_free_encoded_rawdata(&raw);
 }
@@ -543,12 +527,10 @@ static void __eventsystem_filter_userevent_for_application(GDBusConnection *conn
 
 	_D("sender_name(%s), interface_name(%s)", sender_name, interface_name);
 
-	if (filter_tbl == NULL) {
+	if (filter_tbl == NULL)
 		filter_tbl = g_hash_table_new(g_str_hash, g_str_equal);
-	}
 
 	sender_id = (char *)g_hash_table_lookup(filter_tbl, interface_name);
-
 	if (sender_id == NULL) {
 		sender_pid = __eventsystem_get_sender_pid(connection, sender_name);
 		if (sender_pid <= 0) {
@@ -621,11 +603,11 @@ static int __eventsystem_register_event_internal(const char *event_name,
 	int evt_type = ES_TYPE_UNKNOWN;
 	GDBusConnection *conn = NULL;
 
-	if (__check_eventname_validation_system((char *)event_name)) {
+	if (__check_eventname_validation_system((char *)event_name))
 		evt_type = ES_TYPE_SYSTEM;
-	} else if (__check_eventname_validation_user((char *)event_name)) {
+	else if (__check_eventname_validation_user((char *)event_name))
 		evt_type = ES_TYPE_USER;
-	} else {
+	else {
 		evt_type = ES_TYPE_UNKNOWN;
 		_E("unknown type event(%s)", event_name);
 		return ES_R_EINVAL;
@@ -741,9 +723,8 @@ out_3:
 out_2:
 	FREE_AND_NULL(interface_name);
 out_1:
-	if (conn) {
+	if (conn)
 		g_object_unref(conn);
-	}
 
 	return ret;
 }
@@ -762,12 +743,10 @@ int eventsystem_register_event(const char *event_name, unsigned int *reg_id,
 	retvm_if(!reg_id, ES_R_EINVAL, "Invalid argument : reg_id");
 	retvm_if(!callback, ES_R_EINVAL, "Invalid argument : callback");
 
-	if (!_initialized) {
+	if (!_initialized)
 		__initialize();
-	}
 
 	ret = __eventsystem_register_event_internal(event_name, &em, user_data);
-
 	if (ret == ES_R_OK && em) {
 		em->ep_cb = callback;
 		system_event_list = g_list_append(system_event_list, em);
@@ -794,9 +773,8 @@ int eventsystem_unregister_event(unsigned int reg_id)
 
 	retvm_if(reg_id == 0, ES_R_EINVAL, "Invalid argument : reg_id");
 
-	if (!_initialized) {
+	if (!_initialized)
 		__initialize();
-	}
 
 	em.reg_id = reg_id;
 	cb_list = g_list_find_custom(system_event_list, &em,
@@ -875,12 +853,13 @@ static int __eventsystem_send_trusted_event(GDBusConnection *conn, eventinfo_s *
 {
 	GList *tmp_list = NULL;
 	int ret = 0;
+	char *dest_name;
 
 	if (dest_list) {
 		tmp_list = g_list_first(dest_list);
 
 		while (tmp_list != NULL) {
-			char *dest_name = (char *)tmp_list->data;
+			dest_name = (char *)tmp_list->data;
 			if (dest_name && dest_name[0] != '\0') {
 				_D("dest_name(%s)", dest_name);
 				evti->destination_name = dest_name;
@@ -907,6 +886,7 @@ static int __eventsystem_send_trusted_event(GDBusConnection *conn, eventinfo_s *
 int eventsystem_send_user_event(const char *event_name, bundle *data, bool is_trusted)
 {
 	int ret = 0;
+	eventinfo_s *evti = NULL;
 
 	/* check validation */
 	retvm_if(!event_name, ES_R_EINVAL, "Invalid argument : event_name is NULL");
@@ -919,7 +899,6 @@ int eventsystem_send_user_event(const char *event_name, bundle *data, bool is_tr
 		return ES_R_EINVAL;
 	}
 
-	eventinfo_s *evti = NULL;
 	evti = calloc(1, sizeof(eventinfo_s));
 	if (!evti) {
 		_E("memory alloc failed");
@@ -975,9 +954,9 @@ int eventsystem_send_user_event(const char *event_name, bundle *data, bool is_tr
 		ret = ES_R_ERROR;
 	}
 
-	if (conn) {
+	if (conn)
 		g_object_unref(conn);
-	}
+
 	FREE_AND_NULL(evti->object_path);
 out_4:
 	FREE_AND_NULL(evti->member_name);
@@ -997,6 +976,8 @@ out_1:
 int eventsystem_send_system_event(const char *event_name, bundle *data)
 {
 	int ret = 0;
+	eventinfo_s *evti = NULL;
+	GDBusConnection *conn = NULL;
 
 	pthread_mutex_lock(&send_sync_lock);
 
@@ -1010,7 +991,6 @@ int eventsystem_send_system_event(const char *event_name, bundle *data)
 
 	_D("event_name(%s)", event_name);
 
-	eventinfo_s *evti = NULL;
 	evti = calloc(1, sizeof(eventinfo_s));
 	if (!evti) {
 		_E("memory alloc failed");
@@ -1049,17 +1029,16 @@ int eventsystem_send_system_event(const char *event_name, bundle *data)
 	evti->destination_name = NULL;
 	evti->is_user_event = false;
 
-	GDBusConnection *conn = NULL;
-	if (__get_gdbus_shared_connection(&conn, G_BUS_TYPE_SYSTEM, ES_TYPE_SYSTEM) == ES_R_OK) {
+	if (__get_gdbus_shared_connection(&conn, G_BUS_TYPE_SYSTEM, ES_TYPE_SYSTEM) == ES_R_OK)
 		ret = __eventsystem_send_event(conn, evti, data);
-	} else {
+	else {
 		_E("getting gdbus-connection error");
 		ret = ES_R_ERROR;
 	}
 
-	if (conn) {
+	if (conn)
 		g_object_unref(conn);
-	}
+
 	FREE_AND_NULL(evti->object_path);
 out_4:
 	FREE_AND_NULL(evti->member_name);
@@ -1093,9 +1072,8 @@ int eventsystem_request_sending_system_event(const char *event_name, bundle *dat
 
 	_D("event_name(%s)", event_name);
 
-	if (!_initialized) {
+	if (!_initialized)
 		__initialize();
-	}
 
 	if (__get_gdbus_shared_connection(&conn, G_BUS_TYPE_SYSTEM, ES_TYPE_SYSTEM) < 0) {
 		_E("getting gdbus-connetion error");
@@ -1135,9 +1113,8 @@ int eventsystem_request_sending_system_event(const char *event_name, bundle *dat
 out_2:
 	g_variant_unref(value);
 out_1:
-	if (conn) {
+	if (conn)
 		g_object_unref(conn);
-	}
 
 	return ret;
 }
@@ -1153,9 +1130,8 @@ static int __eventsystem_check_sender_validation(int sender_pid, const char *eve
 	GVariant *value = NULL;
 	gint result = 0;
 
-	if (!_initialized) {
+	if (!_initialized)
 		__initialize();
-	}
 
 	if (__get_gdbus_shared_connection(&conn, G_BUS_TYPE_SYSTEM, ES_TYPE_SYSTEM) < 0) {
 		_E("getting gdbus-connetion error");
@@ -1188,15 +1164,13 @@ static int __eventsystem_check_sender_validation(int sender_pid, const char *eve
 
 	_D("result(%d)", result);
 
-	if (result == 1) {
+	if (result == 1)
 		ret = ES_R_OK;
-	}
 out_2:
 	g_variant_unref(value);
 out_1:
-	if (conn) {
+	if (conn)
 		g_object_unref(conn);
-	}
 
 	return ret;
 }
@@ -1211,9 +1185,8 @@ static int __eventsystem_check_user_send_validation(const char *event_name)
 	GVariant *value = NULL;
 	gint result = 0;
 
-	if (!_initialized) {
+	if (!_initialized)
 		__initialize();
-	}
 
 	if (__get_gdbus_shared_connection(&conn, G_BUS_TYPE_SYSTEM, ES_TYPE_SYSTEM) < 0) {
 		_E("getting gdbus-connetion error");
@@ -1246,15 +1219,13 @@ static int __eventsystem_check_user_send_validation(const char *event_name)
 
 	_D("result(%d)", result);
 
-	if (result == 1) {
+	if (result == 1)
 		ret = ES_R_OK;
-	}
 out_2:
 	g_variant_unref(value);
 out_1:
-	if (conn) {
+	if (conn)
 		g_object_unref(conn);
-	}
 
 	return ret;
 }
@@ -1269,9 +1240,8 @@ static int __eventsystem_check_privilege_validation(const char *event_name)
 	GVariant *value = NULL;
 	gint result = 0;
 
-	if (!_initialized) {
+	if (!_initialized)
 		__initialize();
-	}
 
 	if (__get_gdbus_shared_connection(&conn, G_BUS_TYPE_SYSTEM, ES_TYPE_SYSTEM) < 0) {
 		_E("getting gdbus-connetion error");
@@ -1304,15 +1274,13 @@ static int __eventsystem_check_privilege_validation(const char *event_name)
 
 	_D("result(%d)", result);
 
-	if (result == 1) {
+	if (result == 1)
 		ret = ES_R_OK;
-	}
 out_2:
 	g_variant_unref(value);
 out_1:
-	if (conn) {
+	if (conn)
 		g_object_unref(conn);
-	}
 
 	return ret;
 }
@@ -1327,9 +1295,8 @@ static int __eventsystem_setup_trusted_peer(const char *event_name, const char *
 	GVariant *value = NULL;
 	gint result = 0;
 
-	if (!_initialized) {
+	if (!_initialized)
 		__initialize();
-	}
 
 	if (__get_gdbus_shared_connection(&conn, G_BUS_TYPE_SYSTEM, ES_TYPE_SYSTEM) < 0) {
 		_E("getting gdbus-connetion error");
@@ -1363,15 +1330,13 @@ static int __eventsystem_setup_trusted_peer(const char *event_name, const char *
 
 	_D("result(%d)", result);
 
-	if (result == 1) {
+	if (result == 1)
 		ret = ES_R_OK;
-	}
 out_2:
 	g_variant_unref(value);
 out_1:
-	if (conn) {
+	if (conn)
 		g_object_unref(conn);
-	}
 
 	return ret;
 }
@@ -1389,9 +1354,8 @@ static int __eventsystem_requet_destination_list(const char *event_name, GList *
 	char *dest_name = NULL;
 	gint result = 0;
 
-	if (!_initialized) {
+	if (!_initialized)
 		__initialize();
-	}
 
 	if (__get_gdbus_shared_connection(&conn, G_BUS_TYPE_SYSTEM, ES_TYPE_SYSTEM) < 0) {
 		_E("getting gdbus-connetion error");
@@ -1444,9 +1408,8 @@ static int __eventsystem_requet_destination_list(const char *event_name, GList *
 out_2:
 	g_variant_unref(value);
 out_1:
-	if (conn) {
+	if (conn)
 		g_object_unref(conn);
-	}
 
 	return ret;
 }
@@ -1460,13 +1423,13 @@ static int __eventsystem_request_earlier_data(const char *event_name,
 	GError *error = NULL;
 	GDBusProxy *proxy = NULL;
 	GVariant *param = NULL;
+	GVariant *value = NULL;
 	gint result = 0;
 	bundle_raw *raw = NULL;
 	int len = 0;
 
-	if (!_initialized) {
+	if (!_initialized)
 		__initialize();
-	}
 
 	if (__get_gdbus_shared_connection(&conn, G_BUS_TYPE_SYSTEM, ES_TYPE_SYSTEM) < 0) {
 		_E("getting gdbus-connetion error");
@@ -1487,7 +1450,7 @@ static int __eventsystem_request_earlier_data(const char *event_name,
 	}
 
 	param = g_variant_new("(s)", event_name);
-	GVariant *value = g_dbus_proxy_call_sync(proxy, "GetEarlierData", param,
+	value = g_dbus_proxy_call_sync(proxy, "GetEarlierData", param,
 		G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
 	if (error != NULL) {
 		_E("proxy call sync error(%s)", error->message);
@@ -1511,9 +1474,8 @@ static int __eventsystem_request_earlier_data(const char *event_name,
 out_2:
 	g_variant_unref(value);
 out_1:
-	if (conn) {
+	if (conn)
 		g_object_unref(conn);
-	}
 
 	return ret;
 }
@@ -1533,9 +1495,8 @@ int eventsystem_register_application_event(const char *event_name, unsigned int 
 	int ret = 0;
 	GDBusConnection *conn = NULL;
 
-	if (!_initialized) {
+	if (!_initialized)
 		__initialize();
-	}
 
 	if (__check_eventname_validation_system((char *)event_name)) {
 		if (__eventsystem_check_privilege_validation(event_name) != ES_R_OK) {
@@ -1687,9 +1648,8 @@ int eventsystem_register_application_event(const char *event_name, unsigned int 
 	FREE_AND_NULL(interface_name);
 	FREE_AND_NULL(object_path);
 	FREE_AND_NULL(member_name);
-	if (conn) {
+	if (conn)
 		g_object_unref(conn);
-	}
 
 	return ret;
 }
@@ -1705,9 +1665,8 @@ int eventsystem_unregister_application_event(unsigned int reg_id)
 
 	retvm_if(reg_id == 0, ES_R_EINVAL, "Invalid argument : reg_id");
 
-	if (!_initialized) {
+	if (!_initialized)
 		__initialize();
-	}
 
 	em.reg_id = reg_id;
 	cb_list = g_list_find_custom(system_event_list, &em,
@@ -1743,49 +1702,47 @@ int eventsystem_unregister_application_event(unsigned int reg_id)
 
 int eventsystem_application_finalize(void)
 {
-	gpointer key, value;
+	gpointer key;
+	gpointer value;
+	GHashTableIter iter;
+	char *key_item;
+	char *val_item;
 
 	_D("release all resouces");
 
-	if (system_event_list) {
+	if (system_event_list)
 		g_list_free(system_event_list);
-	}
 
 	if (check_tbl) {
-		GHashTableIter iter;
-
 		g_hash_table_iter_init(&iter, check_tbl);
 
 		while (g_hash_table_iter_next(&iter, &key, &value)) {
-			char *val_item = (char *)value;
-			if (val_item) {
+			val_item = (char *)value;
+			if (val_item)
 				free(val_item);
-			} else {
+			else
 				_E("check_tbl, val_item is NULL");
-			}
 			g_hash_table_iter_remove(&iter);
 		}
 		g_hash_table_unref(check_tbl);
 	}
 
 	if (filter_tbl) {
-		GHashTableIter iter;
-
 		g_hash_table_iter_init(&iter, filter_tbl);
 
 		while (g_hash_table_iter_next(&iter, &key, &value)) {
-			char *key_item = (char *)key;
-			if (key_item) {
+			key_item = (char *)key;
+			if (key_item)
 				free(key_item);
-			} else {
+			else
 				_E("filter_tbl, key_item is NULL");
-			}
-			char *val_item = (char *)value;
-			if (val_item) {
+
+			val_item = (char *)value;
+			if (val_item)
 				free(val_item);
-			} else {
+			else
 				_E("filter_tbl, val_item is NULL");
-			}
+
 			g_hash_table_iter_remove(&iter);
 		}
 		g_hash_table_unref(filter_tbl);
