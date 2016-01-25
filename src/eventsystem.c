@@ -1459,8 +1459,7 @@ static int __eventsystem_request_earlier_data(const char *event_name,
 		goto out_2;
 	}
 
-	g_variant_get(value, "(iis)", &result, &len, &raw);
-	g_variant_unref(value);
+	g_variant_get(value, "(iims)", &result, &len, &raw);
 
 	_D("result(%d), len(%d)", result, len);
 
