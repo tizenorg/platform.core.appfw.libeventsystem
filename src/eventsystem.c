@@ -23,6 +23,13 @@
 #define VALID_LAST_COUNT_FOR_EVENTNAME (VALID_COUNT_OF_EVENTNAME_TOKEN + 1)
 #define MAX_COUNT_FOR_EVENTNAME_CHECK (VALID_LAST_COUNT_FOR_EVENTNAME + 1)
 
+#define FREE_AND_NULL(ptr) do { \
+	if (ptr) { \
+		free((void *)ptr); \
+		ptr = NULL; \
+	} \
+} while (0)
+
 #define _E(fmt, arg...) LOGE(fmt, ##arg)
 #define _D(fmt, arg...) LOGD(fmt, ##arg)
 #define _W(fmt, arg...) LOGW(fmt, ##arg)
@@ -280,6 +287,7 @@ static int __check_validation_usrevent_sender(int sender_pid,
 	key = strdup(interface_name);
 	if (key == NULL) {
 		_E("out of memory");
+		g_free(sender_id);
 		return ES_R_ENOMEM;
 	}
 
@@ -287,10 +295,12 @@ static int __check_validation_usrevent_sender(int sender_pid,
 	if (val == NULL) {
 		_E("out of memory");
 		free(key);
+		g_free(sender_id);
 		return ES_R_ENOMEM;
 	}
 
 	g_hash_table_insert(filter_tbl, key, val);
+	g_free(sender_id);
 
 	return ES_R_OK;
 }
@@ -1316,7 +1326,6 @@ static int __eventsystem_setup_trusted_peer(const char *event_name, const char *
 	}
 
 	param = g_variant_new("(ss)", event_name, dest_bus_name);
-
 	value = g_dbus_proxy_call_sync(proxy, "SetupTrustedPeer", param,
 		G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
 	if (error != NULL) {
@@ -1375,7 +1384,6 @@ static int __eventsystem_requet_destination_list(const char *event_name, GList *
 	}
 
 	param = g_variant_new("(s)", event_name);
-
 	value = g_dbus_proxy_call_sync(proxy, "GetTrustedPeerList", param,
 		G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
 	if (error != NULL) {

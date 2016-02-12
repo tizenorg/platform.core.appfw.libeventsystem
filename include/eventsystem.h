@@ -45,14 +45,6 @@ typedef enum _eventsystem_event_type {
 	ES_TYPE_SYSTEM		/* system event */
 } eventsystem_event_type;
 
-#define FREE_AND_NULL(ptr) do { \
-	if (ptr) { \
-		free((void *)ptr); \
-		ptr = NULL; \
-	} \
-} while (0)
-
-
 /**
  * APIs for Application Framework.
  */
