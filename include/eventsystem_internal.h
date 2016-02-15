@@ -267,6 +267,18 @@ extern "C" {
  * font name of string type by font-config.
  */
 
+/** network : connection type */
+#define SYS_EVENT_NETWORK_STATUS "tizen.system.event.network_status"
+/* key */
+#define EVT_KEY_NETWORK_STATUS "network_status"
+/* value */
+#define EVT_VAL_NETWORK_DISCONNECTED "disconnected"
+#define EVT_VAL_NETWORK_WIFI "wifi"
+#define EVT_VAL_NETWORK_CELLULAR "cellular"
+#define EVT_VAL_NETWORK_ETHERNET "ethernet"
+#define EVT_VAL_NETWORK_BT "bt"
+#define EVT_VAL_NETWORK_NET_PROXY "new_proxy"
+
 #ifdef __cplusplus
 }
 #endif
