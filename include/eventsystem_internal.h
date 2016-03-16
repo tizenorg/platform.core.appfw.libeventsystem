@@ -174,6 +174,19 @@ extern "C" {
  *"{unsigned int value}" : new message id
  */
 
+/** message : outgoing msg */
+#define SYS_EVENT_OUTGOING_MSG "tizen.system.event.outgoing_msg"
+/* key */
+#define EVT_KEY_OUT_MSG_TYPE "msg_type"
+/* value */
+#define EVT_VAL_OUT_MSG_SMS "sms"
+#define EVT_VAL_OUT_MSG_MMS "mms"
+/* key */
+#define EVT_KEY_OUT_MSG_ID "msg_id"
+/* value description
+ *"{unsigned int value}" : new message id
+ */
+
 /** setting : time changed */
 #define SYS_EVENT_TIME_CHANGED "tizen.system.event.time_changed"
 /* key */
