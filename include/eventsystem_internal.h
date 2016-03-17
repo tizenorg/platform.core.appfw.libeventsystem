@@ -166,6 +166,7 @@ extern "C" {
 #define EVT_KEY_MSG_TYPE "msg_type"
 /* value */
 #define EVT_VAL_SMS "sms"
+#define EVT_VAL_MMS "mms"
 #define EVT_VAL_PUSH "push"
 #define EVT_VAL_CB "cb"
 /* key */
