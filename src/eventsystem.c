@@ -242,10 +242,10 @@ static char *__get_member_name_from_eventname(char *event_name)
 		ptr_last = ptr;
 		count++;
 	}
-	FREE_AND_NULL(temp_name);
 
 	if (count != VALID_LAST_COUNT_FOR_EVENTNAME) {
 		_E("invalid event_name(%s), count(%d)", event_name, count);
+		FREE_AND_NULL(temp_name);
 		return NULL;
 	}
 
@@ -254,15 +254,18 @@ static char *__get_member_name_from_eventname(char *event_name)
 		member_name = strdup(ptr_last);
 		if (!member_name) {
 			_E("out_of_memory");
+			FREE_AND_NULL(temp_name);
 			return NULL;
 		}
 	} else {
 		_E("ptr_last is NULL");
+		FREE_AND_NULL(temp_name);
 		return NULL;
 	}
 
 	_D("member_name(%s)", member_name);
 
+	FREE_AND_NULL(temp_name);
 	return member_name;
 }
 
