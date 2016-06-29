@@ -64,6 +64,12 @@ static GList *system_event_list;
 static int _initialized;
 static GHashTable *check_tbl;
 static GHashTable *filter_tbl;
+static GHashTable *last_data_tbl;
+
+struct last_data_item {
+	char *event_name;
+	GVariant *param;
+};
 
 typedef struct eventmap {
 	char *event_name;
@@ -843,13 +849,24 @@ static int __eventsystem_send_event(GDBusConnection *conn, eventinfo_s *evti, bu
 	_D("object_path(%s)", evti->object_path);
 	_D("member_name(%s)", evti->member_name);
 
-	bundle_free_encoded_rawdata(&raw);
-
 	if (ret == FALSE) {
 		_E("Unable to connect to dbus: %s", error->message);
 		g_error_free(error);
 		return ES_R_ERROR;
 	}
+
+	if (evti->is_user_event) {
+		struct last_data_item *item;
+		item = (struct last_data_item *)g_hash_table_lookup(last_data_tbl,
+				evti->event_name);
+		if (item) {
+			if (item->param)
+				g_variant_unref(item->param);
+			item->param = g_variant_new("(us)", len, raw);
+		}
+	}
+
+	bundle_free_encoded_rawdata(&raw);
 
 	return ES_R_OK;
 }
@@ -1492,6 +1509,183 @@ out_1:
 }
 #endif
 
+static int __request_esd_for_keep_data(const char *event_name, bool check)
+{
+	int ret = 0;
+	GDBusConnection *conn = NULL;
+	GError *error = NULL;
+	GDBusProxy *proxy = NULL;
+	GVariant *param = NULL;
+	GVariant *value = NULL;
+	gint result = 0;
+
+	if (!_initialized)
+		__initialize();
+
+	if (__get_gdbus_shared_connection(&conn, G_BUS_TYPE_SYSTEM,
+				ES_TYPE_SYSTEM) < 0) {
+		_E("getting gdbus-connetion error");
+		ret = ES_R_ERROR;
+		goto out_1;
+	}
+
+	proxy = g_dbus_proxy_new_sync(conn,
+		G_DBUS_PROXY_FLAGS_NONE, NULL,
+		ESD_BUS_NAME, ESD_OBJECT_PATH, ESD_INTERFACE_NAME,
+		NULL, &error);
+
+	if (proxy == NULL) {
+		_E("failed to create new proxy, error(%s)", error->message);
+		g_error_free(error);
+		ret = ES_R_ERROR;
+		goto out_1;
+	}
+
+	param = g_variant_new("(ss)", event_name,
+			check ? s_info.own_name_session_bus :
+			s_info.own_name_system_bus);
+	value = g_dbus_proxy_call_sync(proxy,
+			check ? "CheckLastData" : "KeepLastData", param,
+			G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
+
+	if (error != NULL) {
+		_E("proxy call sync error(%s)", error->message);
+		g_error_free(error);
+		ret = ES_R_ERROR;
+		goto out_2;
+	}
+
+	g_variant_get(value, "(i)", &result);
+
+	_D("result(%d)", result);
+
+	ret = result;
+
+out_2:
+	g_variant_unref(value);
+out_1:
+	if (conn)
+		g_object_unref(conn);
+
+	return ret;
+}
+
+static void _send_last_user_event(const char *event_name,
+		bundle *data, void *user_data)
+{
+	GDBusConnection *conn = NULL;
+	GError *error = NULL;
+	eventinfo_s *evti = NULL;
+	int ret;
+	struct last_data_item *item;
+	GVariant *param = NULL;
+	bundle *b;
+	bundle_raw *raw;
+	int len;
+
+	_D("send last data");
+
+	if (g_strcmp0(event_name, SYS_EVENT_ESD_KEEP_DATA) != 0)
+		return;
+
+	evti = calloc(1, sizeof(eventinfo_s));
+	if (!evti) {
+		_E("memory alloc failed");
+		return;
+	}
+
+	evti->event_name = (char *)bundle_get_val(data,
+			EVT_KEY_ESD_EVENT_NAME);
+	if (!evti->event_name) {
+		_E("memory alloc failed");
+		goto out_1;
+	}
+
+	item = (struct last_data_item *)g_hash_table_lookup(last_data_tbl,
+			evti->event_name);
+	if (!item || !item->param)
+		goto out_1;
+
+	evti->interface_name = __get_encoded_interface_name(evti->event_name);
+	if (!evti->interface_name) {
+		_E("interface_name is NULL");
+		goto out_1;
+	}
+
+	evti->member_name = strdup(EVENT_SYSTEM_MEMBER);
+	if (!evti->member_name) {
+		_E("memory alloc failed");
+		goto out_2;
+	}
+
+	evti->object_path = __get_object_path(evti->interface_name);
+	if (!evti->object_path) {
+		_E("object_path is NULL");
+		goto out_3;
+	}
+
+	evti->destination_name = (char *)bundle_get_val(data,
+			EVT_KEY_ESD_OWN_NAME);
+	if (!evti->destination_name) {
+		_E("object_path is NULL");
+		goto out_4;
+	}
+
+	evti->is_user_event = true;
+
+	if (__get_gdbus_shared_connection(&conn, G_BUS_TYPE_SESSION,
+				ES_TYPE_USER) == ES_R_OK) {
+		ret = g_dbus_connection_emit_signal(conn,
+				evti->destination_name,
+				evti->object_path,
+				evti->interface_name,
+				evti->member_name,
+				item->param,
+				&error);
+		if (ret == FALSE) {
+			_E("Unable to connect to dbus: %s", error->message);
+			g_error_free(error);
+		}
+	}
+
+	if (conn)
+		g_object_unref(conn);
+
+out_4:
+	FREE_AND_NULL(evti->object_path);
+out_3:
+	FREE_AND_NULL(evti->member_name);
+out_2:
+	FREE_AND_NULL(evti->interface_name);
+out_1:
+	FREE_AND_NULL(evti);
+}
+
+int eventsystem_keep_last_event_data(const char *event_name)
+{
+	int ret = 0;
+	unsigned int reg_id;
+	struct last_data_item *item;
+
+	if (last_data_tbl == NULL)
+		last_data_tbl = g_hash_table_new(g_str_hash, g_str_equal);
+
+	ret = __request_esd_for_keep_data(event_name, false);
+	if (ret != ES_R_OK)
+		return ret;
+
+	item = calloc(1, sizeof(*item));
+	item->event_name = strdup(event_name);
+	item->param = NULL;
+
+	g_hash_table_insert(last_data_tbl, (char *)event_name, item);
+
+	ret = eventsystem_register_event(SYS_EVENT_ESD_KEEP_DATA,
+			&reg_id, _send_last_user_event, NULL);
+
+	return ret;
+}
+
 int eventsystem_register_application_event(const char *event_name, unsigned int *reg_id,
 		int *event_type, eventsystem_cb callback, void *user_data)
 {
@@ -1662,6 +1856,8 @@ int eventsystem_register_application_event(const char *event_name, unsigned int 
 	if (conn)
 		g_object_unref(conn);
 
+	__request_esd_for_keep_data(event_name, true);
+
 	return ret;
 }
 
@@ -1757,6 +1953,26 @@ int eventsystem_application_finalize(void)
 			g_hash_table_iter_remove(&iter);
 		}
 		g_hash_table_unref(filter_tbl);
+	}
+
+	if (last_data_tbl) {
+		g_hash_table_iter_init(&iter, last_data_tbl);
+
+		while (g_hash_table_iter_next(&iter, &key, &value)) {
+			key_item = (char *)key;
+			if (key_item)
+				free(key_item);
+			else
+				_E("last_data_tbl, val_item is NULL");
+
+			val_item = (char *)value;
+			if (val_item)
+				free(val_item);
+			else
+				_E("last_data_tbl, val_item is NULL");
+			g_hash_table_iter_remove(&iter);
+		}
+		g_hash_table_unref(check_tbl);
 	}
 
 	FREE_AND_NULL(s_info.own_name_system_bus);
