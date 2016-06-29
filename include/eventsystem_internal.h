@@ -39,6 +39,12 @@ extern "C" {
 #define EVT_VAL_ESD_STARTED "started"
 #define EVT_VAL_ESD_STOPPED "stopped"
 
+/** esd : for sending saved event date request */
+#define SYS_EVENT_REQUEST_LAST_DATA "tizen.system.event.request_last_data"
+/* key */
+#define EVT_KEY_KEPT_EVENT_NAME "kept_event_name"
+#define EVT_KEY_KEPT_OWN_NAME "kept_own_name"
+
 /** battery : charger status */
 #define SYS_EVENT_BATTERY_CHARGER_STATUS "tizen.system.event.battery_charger_status"
 /* key */
