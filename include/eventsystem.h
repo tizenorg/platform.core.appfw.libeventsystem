@@ -161,6 +161,10 @@ API int eventsystem_send_system_event(const char *event_name, bundle *data);
  */
 API int eventsystem_request_sending_system_event(const char *event_name, bundle *data);
 
+/**
+ * function : Request to keep last event data
+ */
+API int eventsystem_keep_last_event_data(const char *event_name);
 
 #ifdef __cplusplus
 }
